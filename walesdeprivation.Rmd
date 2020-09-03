@@ -1,0 +1,100 @@
+---
+title: "Deprivation in Wales"
+output: html_notebook
+---
+
+# Deprivation in Wales
+
+The [Welsh Index of Multiple Deprivation](https://gov.wales/welsh-index-multiple-deprivation-full-index-update-ranks-2019) (WIMD) provides data on a number of measures of deprivation in Wales, down to LSOA.
+
+## Compile and clean: import data for each WIMD
+
+Expand the **Data** section to see the [WIMD 2019 Index and domain scores by small area](https://gov.wales/sites/default/files/statistics-and-research/2019-12/wimd-2019-index-and-domain-scores-by-small-area_0.ods) and download that. 
+
+It's an ODS file so we'll use the `readODS` package to import it.
+
+```{r import ods}
+wimd19scores <- readODS::read.ods("wimd-2019-index-and-domain-scores-by-small-area_0.ods", sheet = 2)
+#For some reason skip = 2 throws an error so we set the colnames to match row 3
+colnames(wimd19scores) <- wimd19scores[3,]
+#Then remove the unneeded ones
+wimd19scores <- wimd19scores[c(-1:-3),]
+```
+
+Repeat for the [2014 WIMD](https://gov.wales/welsh-index-multiple-deprivation-full-index-update-ranks-2014) - again downloaded from the data section:
+
+```{r import wimd14}
+#This time it's xlsx so we use rio's import function and skip the first couple lines
+wimd14scores <- rio::import("150812-wimd-2014-domain-scores-revised-en.xlsx", sheet = 2, skip = 2)
+```
+
+And the [2011 WIMD](https://gov.wales/welsh-index-multiple-deprivation-full-index-update-ranks-2011):
+
+```{r import 2011 wimd}
+#This time we import directly from the URL and the headers are in the first row
+wimd11scores <- rio::import("https://gov.wales/sites/default/files/statistics-and-research/2019-04/wimd-2011-individual-domain-scores-and-overall-index-scores-for-each-lsoa.xls", sheet= 2)
+```
+
+Let's check the summaries of those:
+
+```{r summary}
+summary(wimd19scores)
+summary(wimd14scores)
+summary(wimd11scores)
+```
+
+## Clean: convert ratings to numeric
+
+The WIMD ratings are treated as strings. They need to be numeric:
+
+```{r scores as numeric}
+wimd11scores$`WIMD 2011 score` <- as.numeric(wimd11scores$`WIMD 2011 score`)
+wimd14scores$`WIMD 2014 (r)` <- as.numeric(wimd14scores$`WIMD 2014 (r)`)
+wimd19scores$`WIMD 2019` <- as.numeric(wimd19scores$`WIMD 2019`)
+```
+
+
+
+## Combine and context: merge the years
+
+Each dataset has an LSOA code, so we can merge on those. To begin with let's just look at overall scores. We add `all = F` so it only matches where there is a match ([more here](https://www.infoworld.com/article/3454356/how-to-merge-data-in-r-using-r-merge-dplyr-or-datatable.html)):
+
+```{r merge}
+#Combine the latest two, matching on LSOA code
+wimdcombined <- merge(wimd19scores, wimd14scores, by = "LSOA Code", all = F)
+#Add in the 2011 data
+wimdcombined <- merge(wimdcombined, wimd11scores, by = "LSOA Code", all = F)
+```
+
+We now have 36 columns
+
+```{r colnames combined}
+colnames(wimdcombined)
+```
+
+Let's simplify:
+
+```{r remove columns}
+wimdcompared <- wimdcombined[c(1,2,3,4,16,28)]
+```
+
+And calculate some differences:
+
+```{r}
+wimdcompared$from14to19 <- wimdcompared$`WIMD 2019` - wimdcompared$`WIMD 2014 (r)`
+wimdcompared$from11to14 <- wimdcompared$`WIMD 2014 (r)` - wimdcompared$`WIMD 2011 score`
+wimdcompared$from11to19 <- wimdcompared$`WIMD 2019` - wimdcompared$`WIMD 2011 score`
+```
+
+```{r}
+wimdcompared
+```
+
+## Export
+
+Write the results to a csv
+
+```{r write csv}
+write.csv(wimdcompared,"wimdcompared.csv")
+```
+

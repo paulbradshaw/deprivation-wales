@@ -1,0 +1,133 @@
+---
+title: "Deprivation in Wales - rankings"
+output: html_notebook
+---
+
+# Deprivation in Wales
+
+The [Welsh Index of Multiple Deprivation](https://gov.wales/welsh-index-multiple-deprivation-full-index-update-ranks-2019) (WIMD) provides data on a number of measures of deprivation in Wales, down to LSOA.
+
+## Compile and clean: import data for each WIMD
+
+Expand the **Data** section to see the [WIMD 2019 Index and domain ranks by small area](https://gov.wales/sites/default/files/statistics-and-research/2019-12/welsh-index-multiple-deprivation-2019-index-and-domain-ranks-by-small-area.ods) and download that. 
+
+It's an ODS file so we'll use the `readODS` package to import it.
+
+```{r import ods}
+wimd19ranks <- readODS::read.ods("welsh-index-multiple-deprivation-2019-index-and-domain-ranks-by-small-area.ods", sheet = 2)
+#For some reason skip = 2 throws an error so we set the colnames to match row 3
+colnames(wimd19ranks) <- wimd19ranks[3,]
+#Then remove the unneeded ones
+wimd19ranks <- wimd19ranks[c(-1:-3),]
+```
+
+Repeat for the [2014 WIMD](https://gov.wales/welsh-index-multiple-deprivation-full-index-update-ranks-2014) - again downloaded from the data section:
+
+```{r import wimd14}
+#This time it's xlsx so we use rio's import function and skip the first couple lines
+wimd14ranks <- rio::import("150812-wimd-2014-overall-domain-ranks-each-lsoa-revised-en.xlsx", sheet = 2, skip = 2)
+```
+
+And the [2011 WIMD, which has to be exported from StatsWales](https://statswales.gov.wales/Catalogue/Community-Safety-and-Social-Inclusion/Welsh-Index-of-Multiple-Deprivation/Archive/WIMD-2011/wimd2011)
+
+```{r import 2011 wimd}
+wimd11ranks <- rio::import("wimd11export.csv", skip = 2)
+colnames(wimd11ranks) <- wimd11ranks[1,]
+wimd11ranks <- wimd11ranks[c(-1,-2),]
+colnames(wimd11ranks)[1] <- "LA"
+colnames(wimd11ranks)[2] <- "LSOAandName"
+```
+
+Let's check the summaries of those:
+
+```{r summary}
+summary(wimd19ranks)
+summary(wimd14ranks)
+summary(wimd11ranks)
+```
+
+## Clean: convert rankings to numeric
+
+The WIMD rankings in two are treated as strings. They need to be numeric:
+
+```{r scores as numeric}
+wimd11ranks$`WIMD (1)` <- as.numeric(wimd11ranks$`WIMD (1)`)
+wimd19ranks$`WIMD 2019` <- as.numeric(wimd19ranks$`WIMD 2019`)
+```
+
+## Clean: extract LSOA codes
+
+The WIMD11 column mixes code and name:
+
+```{r}
+head(wimd11ranks$LSOAandName)
+```
+
+We need `tidyr` to use the `separate` function to split those out:
+
+```{r}
+library(dplyr)
+library(tidyr)
+```
+
+And specify what we separate it into:
+
+```{r}
+wimd11ranks <- wimd11ranks %>% 
+  tidyr::separate(LSOAandName, sep=":", into = c("LSOA Code","LSOAname"))
+```
+
+
+
+
+## Combine and context: merge the years
+
+Each dataset has an LSOA code, so we can merge on those. To begin with let's just look at overall scores. We add `all = F` so it only matches where there is a match ([more here](https://www.infoworld.com/article/3454356/how-to-merge-data-in-r-using-r-merge-dplyr-or-datatable.html)):
+
+```{r merge}
+#Combine the latest two, matching on LSOA code
+wimdrankcombined <- merge(wimd19ranks, wimd14ranks, by = "LSOA Code", all = F)
+#Add in the 2011 data
+wimdrankcombined <- merge(wimdrankcombined, wimd11ranks, by = "LSOA Code", all = F)
+```
+
+We now have 46 columns
+
+```{r colnames combined}
+colnames(wimdrankcombined)
+```
+
+Let's simplify:
+
+```{r remove columns}
+wimdrankcombined <- wimdrankcombined[c(1,2,3,4,18,38)]
+colnames(wimdrankcombined)
+```
+
+Let's clarify the 2011 column:
+
+```{r}
+colnames(wimdrankcombined)[6] <- "WIMD 2011 rank"
+colnames(wimdrankcombined)
+```
+
+And calculate some differences:
+
+```{r}
+wimdrankcombined$from14to19 <- wimdrankcombined$`WIMD 2019` - wimdrankcombined$`WIMD 2014 (r)`
+wimdrankcombined$from11to14 <- wimdrankcombined$`WIMD 2014 (r)` - wimdrankcombined$`WIMD 2011 rank`
+wimdrankcombined$from11to19 <- wimdrankcombined$`WIMD 2019` - wimdrankcombined$`WIMD 2011 rank`
+```
+
+```{r}
+wimdrankcombined
+```
+
+## Export
+
+Write the results to a csv
+
+```{r write csv}
+write.csv(wimdrankcombined,"wimdrankcombined.csv")
+```
+
